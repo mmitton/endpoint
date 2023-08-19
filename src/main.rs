@@ -1,44 +1,52 @@
-#![allow(dead_code, unused_imports)]
-
 use std::env;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader, Lines};
-use std::path::Path;
-use std::str::FromStr;
+use std::fmt;
 
-mod commands;
+mod helpers;
+use helpers::read_file;
+
 mod dirtree;
-mod errors;
-
 use dirtree::DirTree;
 
-use crate::dirtree::DirNode;
-use crate::errors::ApplicationError;
-
-fn main() -> Result<(), ApplicationError> {
+fn main() -> Result<(), ()> {
     let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        panic!("Please provide a filename argument.")
+    }
     let filename = args[1].to_string();
 
     let lines = match read_file(filename) {
         Ok(lines) => lines,
-        Err(e) => return Err(e),
+        Err(e) => panic!("{e}"),
     };
 
     let mut tree = DirTree::new();
 
     for line in lines {
         if let Ok(instruction) = line {
-            let _result = tree.execute(instruction);
+            println!("{instruction}");
+            match tree.execute(instruction) {
+                Ok(_) => (),
+                Err(e) => println!("{e}"),
+            }
         }
     }
 
     Ok(())
 }
 
-fn read_file(filename: String) -> Result<Lines<BufReader<File>>, ApplicationError> {
-    let file = File::open(filename);
-    match file {
-        Ok(ref _file) => Ok(BufReader::new(file.unwrap()).lines()),
-        Err(_e) => return Err(ApplicationError::MissingFileError),
+#[derive(Debug, Clone)]
+pub struct ApplicationError {
+    error: String,
+}
+impl ApplicationError {
+    pub fn new(error_string: &str) -> ApplicationError {
+        ApplicationError {
+            error: error_string.to_string(),
+        }
+    }
+}
+impl fmt::Display for ApplicationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.error)
     }
 }
