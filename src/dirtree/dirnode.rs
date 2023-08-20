@@ -1,113 +1,154 @@
 use std::cell::RefCell;
-use std::fmt;
 use std::rc::Rc;
 
-use super::errors::GenericError;
+use super::GenericError;
 
-#[derive(Debug, PartialEq, Clone)]
+pub type DirNode = Rc<RefCell<DirNodeCore>>;
+
+#[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub struct DirNodeCore {
     name: String,
+    me: Option<DirNode>,
     parent: Option<DirNode>,
     children: Vec<DirNode>,
-    hidden: bool,
 }
 
-pub type DirNodeWrapped = Rc<RefCell<DirNodeCore>>;
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct DirNode(DirNodeWrapped);
-
-impl fmt::Display for DirNode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0.borrow().name)
-    }
+pub trait DirNodeFunctions {
+    fn spawn(name: &str) -> DirNode;
+    fn name(&mut self) -> String;
+    fn parent(&mut self) -> Option<DirNode>;
+    fn children(&mut self) -> Vec<DirNode>;
+    fn has_child(&mut self, named: &str) -> Option<DirNode>;
+    fn adopt(&mut self, child: DirNode) -> Result<(), GenericError>;
+    fn emancipate(&mut self, child: DirNode) -> Result<(), GenericError>;
 }
-
-#[allow(unused_must_use, dead_code)]
-impl DirNode {
-    pub fn new(name: &str) -> DirNode {
-        DirNode(Rc::new(RefCell::new(DirNodeCore {
+impl DirNodeFunctions for DirNode {
+    fn spawn(name: &str) -> DirNode {
+        let node = Rc::new(RefCell::new(DirNodeCore {
             name: name.to_string(),
+            me: None,
             parent: None,
             children: vec![],
-            hidden: false,
-        })))
+        }));
+        node.borrow_mut().me = Some(node.clone());
+        return node;
     }
 
-    pub fn hide(&mut self) -> Result<(), GenericError> {
-        self.0.borrow_mut().hidden = true;
-        Ok(())
+    fn name(&mut self) -> String {
+        self.borrow().name.clone()
     }
 
-    pub fn add(&mut self, child: &mut DirNode) -> Result<(), GenericError> {
-        match self.has(child) {
-            Ok(true) => {
-                return Err(GenericError::new(
-                    "Could not create directory ${child} - name in use.",
-                ))
-            }
-            _ => (),
-        }
-        self.0.borrow_mut().children.push(child.to_owned());
-        Ok(())
+    fn parent(&mut self) -> Option<DirNode> {
+        self.clone().borrow().parent.clone()
     }
 
-    pub fn prune(&mut self, child: &mut DirNode) -> Result<(), GenericError> {
-        let index = self.index_for_child(child.0.borrow().name.as_str());
-        match index {
-            Some(i) => _ = self.0.borrow_mut().children.swap_remove(i),
-            None => (),
-        };
-        Ok(())
+    fn children(&mut self) -> Vec<DirNode> {
+        self.clone().borrow().children.clone()
     }
 
-    pub fn move_to(&mut self, parent: &mut DirNode) -> Result<(), GenericError> {
-        match parent.has(self) {
-            Ok(true) => {
-                return Err(GenericError::new(
-                    "Can't move ${self},a node with that name alreay exists under ${parent}",
-                ))
-            }
-            _ => (),
-        };
-
-        match self.0.borrow().parent {
-            // Some(node) => {
-            //     node.prune(self);
-            // }
-            _ => (),
-        };
-
-        _ = parent.add(self);
-        self.0.borrow_mut().parent = Some(parent.to_owned());
-        Ok(())
-    }
-
-    pub fn get_child(&mut self, named: &str) -> Option<DirNode> {
-        for child in self.0.borrow_mut().children.iter() {
-            if child.0.borrow().name == named {
-                return Some(child.to_owned());
+    fn has_child(&mut self, name: &str) -> Option<DirNode> {
+        for node in self.children() {
+            if node.borrow().name == String::from(name) {
+                return Some(node.clone());
             }
         }
         None
     }
 
-    pub fn get_parent(&mut self) -> Option<DirNode> {
-        self.0.borrow_mut().parent.to_owned()
-    }
-
-    fn index_for_child(&mut self, named: &str) -> Option<usize> {
-        self.0
-            .borrow_mut()
-            .children
-            .iter()
-            .position(|d| d.0.borrow_mut().name == named)
-    }
-
-    fn has(&mut self, child: &mut DirNode) -> Result<bool, ()> {
-        match self.index_for_child(&child.0.borrow().name) {
-            Some(_) => Ok(true),
-            None => Ok(false),
+    fn adopt(&mut self, child: DirNode) -> Result<(), GenericError> {
+        _ = self.borrow_mut().add_child(child.clone());
+        let old_parent = child.borrow_mut().parent.clone();
+        if old_parent.is_some() {
+            _ = old_parent.unwrap().borrow_mut().remove_child(child.clone())
         }
+        _ = child.borrow_mut().set_parent(self.clone());
+        Ok(())
+    }
+
+    fn emancipate(&mut self, child: DirNode) -> Result<(), GenericError> {
+        _ = child.borrow_mut().unset_parent();
+        _ = self.borrow_mut().remove_child(child.clone());
+        Ok(())
+    }
+}
+
+impl DirNodeCore {
+    fn add_child(&mut self, node: DirNode) -> Result<(), GenericError> {
+        self.children.push(node.clone());
+        Ok(())
+    }
+
+    fn remove_child(&mut self, node: DirNode) -> Result<(), GenericError> {
+        let result = self.index_for_child(node);
+        if result.is_some() {
+            self.children.remove(result.unwrap());
+        }
+        Ok(())
+    }
+
+    fn set_parent(&mut self, node: DirNode) -> Result<(), GenericError> {
+        self.parent = Some(node.clone());
+        Ok(())
+    }
+
+    fn unset_parent(&mut self) -> Result<(), GenericError> {
+        self.parent = None;
+        Ok(())
+    }
+
+    fn index_for_child(&mut self, node: DirNode) -> Option<usize> {
+        self.children
+            .iter()
+            .position(|child| child.borrow().name == node.borrow().name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dirnode_new() {
+        let node = Rc::new(RefCell::new(DirNodeCore {
+            name: String::from("gary"),
+            me: None,
+            parent: None,
+            children: vec![],
+        }));
+        node.borrow_mut().me = Some(node.clone());
+        let another_node = DirNode::spawn("jon");
+        assert_ne!(node.borrow().name, another_node.borrow().name);
+    }
+
+    #[test]
+    fn dirnode_add_child() {
+        let parent_node = DirNode::spawn("parent");
+        let child_node = DirNode::spawn("child");
+        let _ = parent_node.borrow_mut().add_child(child_node.clone());
+        assert_eq!(
+            child_node.borrow().name,
+            parent_node.borrow().children[0].borrow().name
+        );
+    }
+
+    #[test]
+    fn dirnode_index_for_child() {
+        let parent_node = DirNode::spawn("parent");
+        let child_node = DirNode::spawn("child");
+        let _ = parent_node.borrow_mut().add_child(child_node.clone());
+        assert_eq!(
+            0,
+            parent_node
+                .borrow_mut()
+                .index_for_child(child_node)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn dirnode_no_parent() {
+        let node = DirNode::spawn("node");
+        _ = node.borrow().parent.clone().unwrap();
     }
 }
