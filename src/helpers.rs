@@ -1,12 +1,10 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader, Lines};
+use std::path::Path;
 
-use super::ApplicationError;
+use super::Error;
 
-pub fn read_file(filename: String) -> Result<Lines<BufReader<File>>, ApplicationError> {
-    let file = File::open(filename);
-    match file {
-        Ok(ref _file) => Ok(BufReader::new(file.unwrap()).lines()),
-        Err(_e) => return Err(ApplicationError::new("Could not open file ${filename}")),
-    }
+pub fn read_file(filename: impl AsRef<Path>) -> Result<Lines<BufReader<File>>, Error> {
+    let file = File::open(filename)?;
+    Ok(BufReader::new(file).lines())
 }

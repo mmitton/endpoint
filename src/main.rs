@@ -1,32 +1,24 @@
-use std::env;
-use std::fmt;
-
 mod helpers;
+mod node;
+
 use helpers::read_file;
+use node::Node;
 
-mod dirtree;
-use dirtree::DirTree;
-
-fn main() -> Result<(), ()> {
-    let args: Vec<String> = env::args().collect();
+fn main() -> Result<(), Error> {
+    let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         panic!("Please provide a filename argument.")
     }
-    let filename = args[1].to_string();
+    let lines = read_file(&args[1])?;
 
-    let lines = match read_file(filename) {
-        Ok(lines) => lines,
-        Err(e) => panic!("{e}"),
-    };
+    let mut root = Node::new();
 
-    let mut tree = DirTree::new();
-
-    for line in lines {
-        if let Ok(instruction) = line {
-            println!("{instruction}");
-            match tree.execute(instruction) {
-                Ok(_) => (),
-                Err(e) => println!("{e}"),
+    for line in lines.flatten() {
+        let line = line.trim();
+        if !line.is_empty() {
+            println!("{line}");
+            if let Err(e) = root.execute(line) {
+                println!("{e:?}");
             }
         }
     }
@@ -34,19 +26,41 @@ fn main() -> Result<(), ()> {
     Ok(())
 }
 
-#[derive(Debug, Clone)]
-pub struct ApplicationError {
-    error: String,
+pub enum Error {
+    IO(std::io::Error),
+    Missing {
+        op: &'static str,
+        path: String,
+        missing: String,
+    },
+    Exists {
+        op: &'static str,
+        path: String,
+    },
+    ParamCount(usize, String),
+    UnknownCommand(String),
 }
-impl ApplicationError {
-    pub fn new(error_string: &str) -> ApplicationError {
-        ApplicationError {
-            error: error_string.to_string(),
+
+impl std::fmt::Debug for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::IO(e) => write!(f, "IO: {e}"),
+            Self::Missing { op, path, missing } => {
+                write!(f, "Cannot {op} {path} - {missing} does not exist")
+            }
+            Self::Exists { op, path } => write!(f, "Cannot {op} {path} - already exists"),
+            Self::ParamCount(expected, cmd) => {
+                write!(f, "Expected {expected} parameters for command: {cmd:?}")
+            }
+            Self::UnknownCommand(cmd) => {
+                write!(f, "Unknown command: {cmd:?}")
+            }
         }
     }
 }
-impl fmt::Display for ApplicationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.error)
+
+impl From<std::io::Error> for Error {
+    fn from(e: std::io::Error) -> Self {
+        Self::IO(e)
     }
 }
