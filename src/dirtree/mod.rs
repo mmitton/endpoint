@@ -107,13 +107,15 @@ impl DirTree {
                 let mut current_node = self.root.clone();
                 let mut last_checked_name: &str = "root";
                 for token in path_tokens.clone() {
-                    last_checked_name = token;
                     let result = current_node.has_child(token);
                     match result {
                         Some(node) => {
                             current_node = node.clone();
                         }
-                        _ => (),
+                        _ => {
+                            last_checked_name = token;
+                            break;
+                        }
                     }
                 }
                 if current_node.name() != path_tokens.clone().last().unwrap().to_string() {
